@@ -56,26 +56,33 @@ def color_distance(c1, c2):
     return np.linalg.norm(np.array(c1) - np.array(c2))
 
 st.title("Painter App: Paint Recipe Generator")
-st.markdown("Select your desired color using the color picker below. The app will generate a paint recipe using the available colors.")
+st.markdown("Generate a paint recipe by matching a desired color with available paints.")
 
-# Desired color input via color picker
-desired_hex = st.color_picker("Pick the desired color", "#ffffff")
-desired_rgb = hex_to_rgb(desired_hex)
+# Choose input method: Color Picker or Manual Entry
+input_method = st.radio("Select color input method", ["Color Picker", "Manual Entry"])
+
+if input_method == "Color Picker":
+    desired_hex = st.color_picker("Pick the desired color", "#ffffff")
+    desired_rgb = hex_to_rgb(desired_hex)
+else:
+    r = st.number_input("Enter Red value (0-255)", min_value=0, max_value=255, value=255)
+    g = st.number_input("Enter Green value (0-255)", min_value=0, max_value=255, value=255)
+    b = st.number_input("Enter Blue value (0-255)", min_value=0, max_value=255, value=255)
+    desired_rgb = (r, g, b)
+    desired_hex = '#{:02x}{:02x}{:02x}'.format(r, g, b)
+
 st.write("Desired RGB:", desired_rgb)
 
-# Build a list of paints from the color_db
+# Build a list of paints from the database
 paints = []
 for name, info in color_db.items():
     paints.append({
         'Name': name,
         'hex': info['hex'],
         'rgb': info['rgb'],
-        'R': info['rgb'][0],
-        'G': info['rgb'][1],
-        'B': info['rgb'][2],
     })
 
-# Find best match with a single paint
+# Find best match using a single paint
 best_error = float('inf')
 best_single = None
 for paint in paints:
@@ -101,7 +108,7 @@ for i, paint1 in enumerate(paints):
             continue  # avoid division by zero if colors are identical
         desired_arr = np.array(desired_rgb)
         alpha = np.dot(desired_arr - color2, diff) / norm_sq
-        alpha = max(0, min(1, alpha))  # ensure alpha is between 0 and 1
+        alpha = max(0, min(1, alpha))  # clamp between 0 and 1
         mixture = alpha * color1 + (1 - alpha) * color2
         error = color_distance(mixture, desired_rgb)
         if error < best_two_error:
@@ -111,25 +118,62 @@ for i, paint1 in enumerate(paints):
 
 st.header("Best Recipe Found")
 
-# Compare the best single paint with the best two-paint mix
+# Visual comparison: Display desired color vs. result side by side
+col1, col2 = st.columns(2)
+with col1:
+    st.markdown("### Desired Color")
+    st.markdown(
+        f"<div style='width:150px; height:150px; background-color:{desired_hex}; border:1px solid black;'></div>",
+        unsafe_allow_html=True,
+    )
+with col2:
+    if best_error <= best_two_error:
+        result_hex = best_single['hex']
+        st.markdown("### Matched Paint")
+        st.markdown(
+            f"<div style='width:150px; height:150px; background-color:{result_hex}; border:1px solid black;'></div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        result_hex = '#{:02x}{:02x}{:02x}'.format(
+            *tuple(map(lambda x: int(round(x)), best_two_mixture))
+        )
+        st.markdown("### Resulting Mixture")
+        st.markdown(
+            f"<div style='width:150px; height:150px; background-color:{result_hex}; border:1px solid black;'></div>",
+            unsafe_allow_html=True,
+        )
+
+# Display recipe details
 if best_error <= best_two_error:
-    st.markdown("### Use a Single Paint")
+    st.subheader("Use a Single Paint")
     st.write("Paint Name:", best_single['Name'])
     st.write("RGB:", best_single['rgb'])
     st.write("Error (Euclidean distance):", round(best_error, 2))
-    st.markdown(f"<div style='width:100px; height:100px; background-color:{desired_hex}; border:1px solid black;'></div>", unsafe_allow_html=True)
-    st.info("The desired color is very close to one of the available paints!")
 else:
     paint1, paint2, alpha = best_two_recipe
     pct1 = round(alpha * 100, 1)
     pct2 = round((1 - alpha) * 100, 1)
-    st.markdown("### Mix Two Paints")
+    st.subheader("Mix Two Paints")
     st.write("**Paint 1:**", paint1['Name'], "RGB:", paint1['rgb'], f"({pct1}%)")
     st.write("**Paint 2:**", paint2['Name'], "RGB:", paint2['rgb'], f"({pct2}%)")
     st.write("Resulting Mixture RGB:", tuple(map(lambda x: int(round(x)), best_two_mixture)))
     st.write("Error (Euclidean distance):", round(best_two_error, 2))
-    mixture_hex = '#{:02x}{:02x}{:02x}'.format(*tuple(map(lambda x: int(round(x)), best_two_mixture)))
-    st.markdown(f"<div style='width:100px; height:100px; background-color:{mixture_hex}; border:1px solid black;'></div>", unsafe_allow_html=True)
+    
+    st.markdown("#### Paints Used in Mixture:")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown(f"**{paint1['Name']}**")
+        st.markdown(
+            f"<div style='width:100px; height:100px; background-color:{paint1['hex']}; border:1px solid black;'></div>",
+            unsafe_allow_html=True,
+        )
+    with col_b:
+        st.markdown(f"**{paint2['Name']}**")
+        st.markdown(
+            f"<div style='width:100px; height:100px; background-color:{paint2['hex']}; border:1px solid black;'></div>",
+            unsafe_allow_html=True,
+        )
 
 st.markdown("---")
-st.info("Note: This app currently supports mixing two paints. For more complex recipes, consider using optimization techniques to handle mixtures of three or more paints.")
+st.info("Note: This app currently supports mixing two paints. For more complex recipes, consider using optimization techniques for mixtures of three or more paints.")
