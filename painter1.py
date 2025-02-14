@@ -9,7 +9,7 @@ def load_and_parse_excel():
     """Load and parse the Excel database with enhanced error handling"""
     brands = {}
     try:
-        xls = pd.ExcelFile('sunnysanwar.xlsx')
+        xls = pd.ExcelFile('paints.xlsx')
         
         for sheet_name in xls.sheet_names:
             if sheet_name == 'Common Color Names & Values':
