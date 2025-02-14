@@ -45,7 +45,7 @@ def color_distance(c1, c2):
     return np.linalg.norm(np.array(c1) - np.array(c2))
 
 st.title("Painter App: Paint Recipe Generator")
-st.markdown("Generate a paint recipe by matching a desired color with available paints.")
+st.markdown("Generate a paint recipe by matching a desired color with available paints (using three-paint mixing).")
 
 # Choose input method: Color Picker or Manual Entry
 input_method = st.radio("Select color input method", ["Color Picker", "Manual Entry"])
@@ -72,54 +72,22 @@ for name, info in db_colors.items():
         'hex': rgb_to_hex(info['rgb'])
     })
 
-# 1. Find best match using a single paint
-best_single_error = float('inf')
-best_single = None
-for paint in paints:
-    err = color_distance(paint['rgb'], desired_rgb)
-    if err < best_single_error:
-        best_single_error = err
-        best_single = paint
-
-# 2. Find best two-paint mix using nested loops (analytical solution)
-best_two_error = float('inf')
-best_two_recipe = None
-best_two_mixture = None
-for i, paint1 in enumerate(paints):
-    c1 = np.array(paint1['rgb'])
-    for j, paint2 in enumerate(paints):
-        if i == j:
-            continue
-        c2 = np.array(paint2['rgb'])
-        diff = c1 - c2
-        norm_sq = np.dot(diff, diff)
-        if norm_sq == 0:
-            continue  # identical colors
-        desired_arr = np.array(desired_rgb)
-        alpha = np.dot(desired_arr - c2, diff) / norm_sq
-        alpha = max(0, min(1, alpha))  # clamp alpha to [0,1]
-        mixture = alpha * c1 + (1 - alpha) * c2
-        error = color_distance(mixture, desired_rgb)
-        if error < best_two_error:
-            best_two_error = error
-            best_two_recipe = (paint1, paint2, alpha)
-            best_two_mixture = mixture
-
-# 3. Find best three-paint mix using grid search
+# Compute best three-paint mix using grid search
 best_three_error = float('inf')
 best_three_recipe = None
 best_three_mixture = None
-step = 0.1  # grid resolution
+step = 0.05  # grid resolution; adjust for finer search (at cost of speed)
 n_paints = len(paints)
+desired_arr = np.array(desired_rgb)
 for i in range(n_paints):
     c1 = np.array(paints[i]['rgb'])
     for j in range(i+1, n_paints):
         c2 = np.array(paints[j]['rgb'])
         for k in range(j+1, n_paints):
             c3 = np.array(paints[k]['rgb'])
-            # Search over coefficients a and b; let c = 1 - a - b
-            for a in np.arange(0, 1+step, step):
-                for b in np.arange(0, 1+step, step):
+            # Iterate over mixing coefficients: a, b, c such that a+b+c = 1
+            for a in np.arange(0, 1 + step, step):
+                for b in np.arange(0, 1 + step, step):
                     if a + b > 1:
                         continue
                     c_val = 1 - a - b
@@ -130,63 +98,24 @@ for i in range(n_paints):
                         best_three_recipe = (paints[i], paints[j], paints[k], a, b, c_val)
                         best_three_mixture = mixture
 
-# Determine the best overall option among single, two-paint, and three-paint mixtures
-best_option = None
-min_error = min(best_single_error, best_two_error, best_three_error)
+result_hex = '#{:02x}{:02x}{:02x}'.format(*tuple(map(lambda x: int(round(x)), best_three_mixture)))
 
-if best_single_error == min_error:
-    best_option = 'single'
-elif best_two_error == min_error:
-    best_option = 'two'
-else:
-    best_option = 'three'
+st.header("Best Recipe Found: Mix Three Paints")
+paint1, paint2, paint3, a, b, c_val = best_three_recipe
+pct1 = round(a * 100, 1)
+pct2 = round(b * 100, 1)
+pct3 = round(c_val * 100, 1)
+st.write("**Paint 1:**", paint1['Name'], "RGB:", paint1['rgb'], f"({pct1}%)", "Density:", paint1['density'])
+st.write("**Paint 2:**", paint2['Name'], "RGB:", paint2['rgb'], f"({pct2}%)", "Density:", paint2['density'])
+st.write("**Paint 3:**", paint3['Name'], "RGB:", paint3['rgb'], f"({pct3}%)", "Density:", paint3['density'])
+st.write("Resulting Mixture RGB:", tuple(map(lambda x: int(round(x)), best_three_mixture)))
+st.write("Error (Euclidean distance):", round(best_three_error, 2))
+st.markdown(
+    f"<div style='width:150px; height:150px; background-color:{result_hex}; border:1px solid black;'></div>",
+    unsafe_allow_html=True,
+)
 
-st.header("Best Recipe Found")
-if best_option == 'single':
-    st.subheader("Use a Single Paint")
-    st.write("Paint Name:", best_single['Name'])
-    st.write("RGB:", best_single['rgb'])
-    st.write("Density:", best_single['density'])
-    st.write("Error (Euclidean distance):", round(best_single_error, 2))
-    result_hex = best_single['hex']
-    st.markdown(
-        f"<div style='width:150px; height:150px; background-color:{result_hex}; border:1px solid black;'></div>",
-        unsafe_allow_html=True,
-    )
-elif best_option == 'two':
-    paint1, paint2, alpha = best_two_recipe
-    pct1 = round(alpha * 100, 1)
-    pct2 = round((1 - alpha) * 100, 1)
-    st.subheader("Mix Two Paints")
-    st.write("**Paint 1:**", paint1['Name'], "RGB:", paint1['rgb'], f"({pct1}%)", "Density:", paint1['density'])
-    st.write("**Paint 2:**", paint2['Name'], "RGB:", paint2['rgb'], f"({pct2}%)", "Density:", paint2['density'])
-    mixture_rgb = tuple(map(lambda x: int(round(x)), best_two_mixture))
-    st.write("Resulting Mixture RGB:", mixture_rgb)
-    st.write("Error (Euclidean distance):", round(best_two_error, 2))
-    result_hex = '#{:02x}{:02x}{:02x}'.format(*mixture_rgb)
-    st.markdown(
-        f"<div style='width:150px; height:150px; background-color:{result_hex}; border:1px solid black;'></div>",
-        unsafe_allow_html=True,
-    )
-else:
-    paint1, paint2, paint3, a, b, c_val = best_three_recipe
-    pct1 = round(a * 100, 1)
-    pct2 = round(b * 100, 1)
-    pct3 = round(c_val * 100, 1)
-    st.subheader("Mix Three Paints")
-    st.write("**Paint 1:**", paint1['Name'], "RGB:", paint1['rgb'], f"({pct1}%)", "Density:", paint1['density'])
-    st.write("**Paint 2:**", paint2['Name'], "RGB:", paint2['rgb'], f"({pct2}%)", "Density:", paint2['density'])
-    st.write("**Paint 3:**", paint3['Name'], "RGB:", paint3['rgb'], f"({pct3}%)", "Density:", paint3['density'])
-    mixture_rgb = tuple(map(lambda x: int(round(x)), best_three_mixture))
-    st.write("Resulting Mixture RGB:", mixture_rgb)
-    st.write("Error (Euclidean distance):", round(best_three_error, 2))
-    result_hex = '#{:02x}{:02x}{:02x}'.format(*mixture_rgb)
-    st.markdown(
-        f"<div style='width:150px; height:150px; background-color:{result_hex}; border:1px solid black;'></div>",
-        unsafe_allow_html=True,
-    )
-
-# Side-by-side display of Desired vs. Result
+# Visual comparison: Display desired color vs. resulting color side by side
 col1, col2 = st.columns(2)
 with col1:
     st.markdown("### Desired Color")
@@ -202,4 +131,4 @@ with col2:
     )
 
 st.markdown("---")
-st.info("Note: The three-paint mixing uses a grid search with a 0.1 resolution. Adjust the step size for a finer search (at the cost of speed).")
+st.info("Note: This app now uses three-paint mixing with a grid search resolution of 0.05. Adjust the step size for a finer search (at the cost of speed).")
