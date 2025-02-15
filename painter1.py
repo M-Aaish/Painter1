@@ -39,33 +39,33 @@ db_colors = {
     "Zinc White (Mixing White)": {"rgb": [250, 242, 222], "density": 1687},
 }
 
-# Function to mix colors using least squares optimization
+# Function to optimize paint mixing
 def optimize_color_mix(target_rgb, selected_colors):
-    # Extract the RGB values of the selected colors
     color_rgbs = np.array([db_colors[name]["rgb"] for name in selected_colors])
 
-    # Define an objective function to minimize the color difference
     def objective(weights):
         mixed_rgb = np.dot(weights, color_rgbs)
-        return np.linalg.norm(mixed_rgb - target_rgb)  # Minimize RGB difference
+        return np.linalg.norm(mixed_rgb - target_rgb)  # Minimize color difference
 
-    # Initial guess: equal distribution
-    initial_weights = np.ones(len(selected_colors)) / len(selected_colors)
-
-    # Constraints: sum of weights must be 1
     constraints = {"type": "eq", "fun": lambda w: np.sum(w) - 1}
-
-    # Bounds: each weight between 0 and 1
     bounds = [(0, 1)] * len(selected_colors)
 
-    # Solve the optimization problem
-    result = minimize(objective, initial_weights, bounds=bounds, constraints=constraints)
+    best_solution = None
+    best_error = float("inf")
 
-    return result.x if result.success else None
+    # Try multiple initial guesses to improve results
+    for _ in range(10):  # Run optimization 10 times with different initial guesses
+        initial_weights = np.random.dirichlet(np.ones(len(selected_colors)))  # Ensure sum = 1
+        result = minimize(objective, initial_weights, bounds=bounds, constraints=constraints)
+        
+        if result.success and result.fun < best_error:
+            best_solution = result.x
+            best_error = result.fun
+
+    return best_solution if best_solution is not None else None
 
 # Streamlit UI
-st.title("🎨 Paint Recipe Generator")
-st.markdown("Enter an RGB value and get optimized paint mixing recipes.")
+st.title("🎨 Optimized Paint Recipe Generator")
 
 # User Input
 r = st.slider("Red", 0, 255, 128)
@@ -73,7 +73,6 @@ g = st.slider("Green", 0, 255, 128)
 b = st.slider("Blue", 0, 255, 128)
 target_color = np.array([r, g, b])
 
-# Display Desired Color
 st.subheader("🎨 Desired Color")
 st.markdown(f"<div style='width:150px; height:75px; background-color:rgb({r},{g},{b});'></div>", unsafe_allow_html=True)
 
@@ -82,11 +81,9 @@ if st.button("Generate Recipe"):
     color_names = list(db_colors.keys())
     color_rgbs = np.array([db_colors[name]["rgb"] for name in color_names])
     
-    # Compute Euclidean distances
     distances = np.linalg.norm(color_rgbs - target_color, axis=1)
-    closest_indices = np.argsort(distances)[:5]  # Get 5 closest colors
+    closest_indices = np.argsort(distances)[:5]
 
-    # Generate optimized paint recipes
     best_recipes = []
     for combo in combinations([color_names[i] for i in closest_indices], 3):
         weights = optimize_color_mix(target_color, combo)
@@ -95,24 +92,16 @@ if st.button("Generate Recipe"):
             error = np.linalg.norm(mixed_rgb - target_color)
             best_recipes.append({"colors": combo, "weights": weights, "mixed_rgb": mixed_rgb, "error": error})
 
-    # Sort by best match
     best_recipes = sorted(best_recipes, key=lambda x: x["error"])[:3]
 
-    # Display recipes
     for idx, recipe in enumerate(best_recipes, start=1):
         st.markdown(f"### Recipe {idx}")
-
-        # Display colors with percentages
         cols = st.columns(3)
         for i, color_name in enumerate(recipe["colors"]):
             with cols[i]:
                 st.markdown(f"<div style='width:100px; height:50px; background-color:rgb({db_colors[color_name]['rgb'][0]},{db_colors[color_name]['rgb'][1]},{db_colors[color_name]['rgb'][2]});'></div>", unsafe_allow_html=True)
                 st.write(f"**{color_name}**: {round(recipe['weights'][i] * 100, 1)}%")
 
-        # Display mixed color result
-        st.markdown("##### Mixed Color Result")
         mixed_rgb = recipe["mixed_rgb"]
         st.markdown(f"<div style='width:150px; height:75px; background-color:rgb({mixed_rgb[0]},{mixed_rgb[1]},{mixed_rgb[2]});'></div>", unsafe_allow_html=True)
-
-        # Show RGB error
-        st.write(f"**Color Match Error:** {round(recipe['error'], 2)}")
+        st.write(f"**Error:** {round(recipe['error'], 2)}")
