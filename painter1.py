@@ -1,5 +1,6 @@
 import streamlit as st
 import numpy as np
+import matplotlib.pyplot as plt
 from itertools import combinations
 from sklearn.metrics.pairwise import euclidean_distances
 
@@ -55,22 +56,26 @@ def generate_paint_recipes(target_rgb):
 
     best_recipes = []
     for combo in possible_combinations:
-        # Calculate weighted RGB values based on density
         total_density = sum(color[1]["density"] for color in combo)
         weighted_rgb = np.array([0, 0, 0], dtype=float)
+        percentages = []
 
         for name, color in combo:
             weight = color["density"] / total_density
+            percentages.append(round(weight * 100, 1))
             weighted_rgb += np.array(color["rgb"]) * weight
 
-        # Calculate the distance to the target color
         error = np.linalg.norm(np.array(target_rgb) - weighted_rgb)
 
-        best_recipes.append({"colors": combo, "error": error})
+        best_recipes.append({"colors": combo, "percentages": percentages, "mixed_rgb": weighted_rgb.astype(int), "error": error})
 
-    # Sort by the best matching recipes
     best_recipes = sorted(best_recipes, key=lambda x: x["error"])[:3]
     return best_recipes
+
+# Function to display colors in a grid
+def display_color(color_name, rgb):
+    st.markdown(f"<div style='width:100px; height:50px; background-color:rgb({rgb[0]},{rgb[1]},{rgb[2]});'></div>", unsafe_allow_html=True)
+    st.write(f"**{color_name}** (RGB: {rgb})")
 
 # Streamlit UI
 st.title("🎨 Paint Recipe Generator")
@@ -82,14 +87,39 @@ g = st.slider("Green", 0, 255, 128)
 b = st.slider("Blue", 0, 255, 128)
 target_color = (r, g, b)
 
-# Display Selected Color
-st.write("### Selected Color:")
-st.color_picker("Color Preview", f'#{r:02x}{g:02x}{b:02x}')
+# Display Desired Color
+st.subheader("🎨 Desired Color")
+st.markdown(f"<div style='width:150px; height:75px; background-color:rgb({r},{g},{b});'></div>", unsafe_allow_html=True)
+st.write(f"RGB: ({r}, {g}, {b})")
 
 if st.button("Generate Recipe"):
     recipes = generate_paint_recipes(target_color)
     
-    st.write("### Generated Paint Recipes:")
+    st.subheader("🎨 Generated Paint Recipes")
     for idx, recipe in enumerate(recipes, start=1):
-        color_mix = " + ".join([f"{color[0]}" for color in recipe["colors"]])
-        st.write(f"**Recipe {idx}:** {color_mix}")
+        st.markdown(f"### Recipe {idx}")
+
+        # Display individual colors with percentages
+        cols = st.columns(len(recipe["colors"]))
+        for i, (color_name, color_data) in enumerate(recipe["colors"]):
+            with cols[i]:
+                display_color(color_name, color_data["rgb"])
+                st.write(f"{recipe['percentages'][i]}%")
+
+        # Display mixed color result
+        st.markdown("##### Mixed Color Result")
+        mixed_rgb = recipe["mixed_rgb"]
+        st.markdown(f"<div style='width:150px; height:75px; background-color:rgb({mixed_rgb[0]},{mixed_rgb[1]},{mixed_rgb[2]});'></div>", unsafe_allow_html=True)
+        st.write(f"Mixed RGB: {tuple(mixed_rgb)}")
+
+        # Comparison with Desired Color
+        fig, ax = plt.subplots(1, 2, figsize=(5, 2))
+        ax[0].imshow([[target_color]], aspect="auto")
+        ax[0].set_title("Desired Color")
+        ax[0].axis("off")
+
+        ax[1].imshow([[tuple(mixed_rgb)]], aspect="auto")
+        ax[1].set_title("Mixed Color")
+        ax[1].axis("off")
+
+        st.pyplot(fig)
