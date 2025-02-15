@@ -1,7 +1,9 @@
 import streamlit as st
 import numpy as np
+from itertools import combinations
+from sklearn.metrics.pairwise import euclidean_distances
 
-# New color database with density values
+# Provided base color database
 db_colors = {
     "Burnt Sienna": {"rgb": [58, 22, 14], "density": 1073},
     "Burnt Umber": {"rgb": [50, 27, 15], "density": 1348},
@@ -36,99 +38,58 @@ db_colors = {
     "Zinc White (Mixing White)": {"rgb": [250, 242, 222], "density": 1687},
 }
 
-# Helper function: convert an RGB list to a hex color string
-def rgb_to_hex(rgb):
-    return '#{:02x}{:02x}{:02x}'.format(*rgb)
+# Function to calculate closest color mix using Euclidean Distance
+def find_closest_colors(target_rgb):
+    colors = np.array([color["rgb"] for color in db_colors.values()])
+    color_names = list(db_colors.keys())
 
-# Helper function: compute Euclidean distance between two RGB colors
-def color_distance(c1, c2):
-    return np.linalg.norm(np.array(c1) - np.array(c2))
+    distances = euclidean_distances([target_rgb], colors)[0]
+    closest_indices = np.argsort(distances)[:5]  # Take top 5 closest colors
+    
+    return [(color_names[i], db_colors[color_names[i]]) for i in closest_indices]
 
-st.title("Painter App: Paint Recipe Generator")
-st.markdown("Generate a paint recipe by matching a desired color with available paints (using three-paint mixing).")
+# Function to generate 3 recipes using color mixing
+def generate_paint_recipes(target_rgb):
+    closest_colors = find_closest_colors(target_rgb)
+    possible_combinations = list(combinations(closest_colors, 3))
 
-# Choose input method: Color Picker or Manual Entry
-input_method = st.radio("Select color input method", ["Color Picker", "Manual Entry"])
+    best_recipes = []
+    for combo in possible_combinations:
+        # Calculate weighted RGB values based on density
+        total_density = sum(color[1]["density"] for color in combo)
+        weighted_rgb = np.array([0, 0, 0], dtype=float)
 
-if input_method == "Color Picker":
-    desired_hex = st.color_picker("Pick the desired color", "#ffffff")
-    desired_rgb = [int(desired_hex[i:i+2], 16) for i in (1, 3, 5)]
-else:
-    r = st.number_input("Enter Red value (0-255)", min_value=0, max_value=255, value=255)
-    g = st.number_input("Enter Green value (0-255)", min_value=0, max_value=255, value=255)
-    b = st.number_input("Enter Blue value (0-255)", min_value=0, max_value=255, value=255)
-    desired_rgb = [r, g, b]
-    desired_hex = '#{:02x}{:02x}{:02x}'.format(r, g, b)
+        for name, color in combo:
+            weight = color["density"] / total_density
+            weighted_rgb += np.array(color["rgb"]) * weight
 
-st.write("Desired RGB:", desired_rgb)
+        # Calculate the distance to the target color
+        error = np.linalg.norm(np.array(target_rgb) - weighted_rgb)
 
-# Build a list of paints from the new database
-paints = []
-for name, info in db_colors.items():
-    paints.append({
-        'Name': name,
-        'rgb': info['rgb'],
-        'density': info['density'],
-        'hex': rgb_to_hex(info['rgb'])
-    })
+        best_recipes.append({"colors": combo, "error": error})
 
-# Compute best three-paint mix using grid search
-best_three_error = float('inf')
-best_three_recipe = None
-best_three_mixture = None
-step = 0.05  # grid resolution; adjust for finer search (at cost of speed)
-n_paints = len(paints)
-desired_arr = np.array(desired_rgb)
-for i in range(n_paints):
-    c1 = np.array(paints[i]['rgb'])
-    for j in range(i+1, n_paints):
-        c2 = np.array(paints[j]['rgb'])
-        for k in range(j+1, n_paints):
-            c3 = np.array(paints[k]['rgb'])
-            # Iterate over mixing coefficients: a, b, c such that a+b+c = 1
-            for a in np.arange(0, 1 + step, step):
-                for b in np.arange(0, 1 + step, step):
-                    if a + b > 1:
-                        continue
-                    c_val = 1 - a - b
-                    mixture = a * c1 + b * c2 + c_val * c3
-                    error = color_distance(mixture, desired_rgb)
-                    if error < best_three_error:
-                        best_three_error = error
-                        best_three_recipe = (paints[i], paints[j], paints[k], a, b, c_val)
-                        best_three_mixture = mixture
+    # Sort by the best matching recipes
+    best_recipes = sorted(best_recipes, key=lambda x: x["error"])[:3]
+    return best_recipes
 
-result_hex = '#{:02x}{:02x}{:02x}'.format(*tuple(map(lambda x: int(round(x)), best_three_mixture)))
+# Streamlit UI
+st.title("🎨 Paint Recipe Generator")
+st.markdown("Enter an RGB value and get three possible paint recipes using base colors.")
 
-st.header("Best Recipe Found: Mix Three Paints")
-paint1, paint2, paint3, a, b, c_val = best_three_recipe
-pct1 = round(a * 100, 1)
-pct2 = round(b * 100, 1)
-pct3 = round(c_val * 100, 1)
-st.write("**Paint 1:**", paint1['Name'], "RGB:", paint1['rgb'], f"({pct1}%)", "Density:", paint1['density'])
-st.write("**Paint 2:**", paint2['Name'], "RGB:", paint2['rgb'], f"({pct2}%)", "Density:", paint2['density'])
-st.write("**Paint 3:**", paint3['Name'], "RGB:", paint3['rgb'], f"({pct3}%)", "Density:", paint3['density'])
-st.write("Resulting Mixture RGB:", tuple(map(lambda x: int(round(x)), best_three_mixture)))
-st.write("Error (Euclidean distance):", round(best_three_error, 2))
-st.markdown(
-    f"<div style='width:150px; height:150px; background-color:{result_hex}; border:1px solid black;'></div>",
-    unsafe_allow_html=True,
-)
+# User Input
+r = st.slider("Red", 0, 255, 128)
+g = st.slider("Green", 0, 255, 128)
+b = st.slider("Blue", 0, 255, 128)
+target_color = (r, g, b)
 
-# Visual comparison: Display desired color vs. resulting color side by side
-col1, col2 = st.columns(2)
-with col1:
-    st.markdown("### Desired Color")
-    st.markdown(
-        f"<div style='width:150px; height:150px; background-color:{desired_hex}; border:1px solid black;'></div>",
-        unsafe_allow_html=True,
-    )
-with col2:
-    st.markdown("### Resulting Color")
-    st.markdown(
-        f"<div style='width:150px; height:150px; background-color:{result_hex}; border:1px solid black;'></div>",
-        unsafe_allow_html=True,
-    )
+# Display Selected Color
+st.write("### Selected Color:")
+st.color_picker("Color Preview", f'#{r:02x}{g:02x}{b:02x}')
 
-st.markdown("---")
-st.info("Note: This app now uses three-paint mixing with a grid search resolution of 0.05. Adjust the step size for a finer search (at the cost of speed).")
+if st.button("Generate Recipe"):
+    recipes = generate_paint_recipes(target_color)
+    
+    st.write("### Generated Paint Recipes:")
+    for idx, recipe in enumerate(recipes, start=1):
+        color_mix = " + ".join([f"{color[0]}" for color in recipe["colors"]])
+        st.write(f"**Recipe {idx}:** {color_mix}")
